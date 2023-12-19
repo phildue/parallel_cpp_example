@@ -1,0 +1,50 @@
+// See https://aka.ms/vscode-remote/devcontainer.json for format details.
+{
+    "dockerFile": "../Dockerfile",
+    "workspaceMount": "source=${localWorkspaceFolder}/,target=/workspace,type=bind",
+    "workspaceFolder": "/workspace",
+    "runArgs": [
+        "--network=host",
+        "--cap-add=SYS_PTRACE",
+        "--security-opt=seccomp:unconfined",
+        "--security-opt=apparmor:unconfined",
+        "--volume=/tmp/.X11-unix:/tmp/.X11-unix",
+        "--privileged",
+        "--runtime=nvidia",
+    ],
+    "containerEnv": {
+        "DISPLAY": "${localEnv:DISPLAY}"
+    },
+    // Set *default* container specific settings.json values on container create.
+    "mounts": [],
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "DavidAnson.vscode-markdownlint",
+                "dotjoshjohnson.xml",
+                "zachflower.uncrustify",
+                "ms-azuretools.vscode-docker",
+                "ms-python.python",
+                "ms-vscode.cpptools",
+                "redhat.vscode-yaml",
+                "twxs.cmake",
+                "yzhang.markdown-all-in-one",
+                "ms-iot.vscode-ros",
+                "ms-vscode.cpptools-extension-pack",
+                "xaver.clang-format",
+                "notskm.clang-tidy",
+                "wayou.vscode-todo-highlight",
+                "Gruntfuggly.todo-tree",
+                "tomoki1207.pdf"
+            ],
+            "settings": {
+                "terminal.integrated.profiles.linux": {
+                    "bash": {
+                        "path": "bash"
+                    },
+                },
+                "terminal.integrated.defaultProfile.linux": "bash"
+            }
+        }
+    }
+}
