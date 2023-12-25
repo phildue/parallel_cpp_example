@@ -14,11 +14,6 @@ class Camera:
             [[1.0 / fx, 0.0, -cx / fx], [0, 1.0 / fy, -cy / fy], [0, 0, 1]]
         ), device=device, dtype=torch.float32)
 
-    def resize(self, s: float):
-        return Camera(
-            self.fx * s, self.fy * s, self.cx * s, self.cy * s, self.h * s, self.w * s
-        )
-
     def image_coordinates(self):
         Y, X = torch.meshgrid(torch.arange(self.h), torch.arange(self.w))
 
@@ -70,8 +65,8 @@ def compute(cam, I0, Z0, motion, I1, device):
 
     i0x = I0[uv0[:, 1], uv0[:, 0]].view(-1)
 
-    r = (i1x - i0x)
-    return r.float().mean() / 255
+    r = (i1x.float() - i0x.float())
+    return r.mean() / 255
 
 
 def main():

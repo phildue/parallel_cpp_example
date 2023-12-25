@@ -16,11 +16,6 @@ class Camera:
             [[1.0 / fx, 0.0, -cx / fx], [0, 1.0 / fy, -cy / fy], [0, 0, 1]]
         )
 
-    def resize(self, s: float):
-        return Camera(
-            self.fx * s, self.fy * s, self.cx * s, self.cy * s, self.h * s, self.w * s
-        )
-
     def image_coordinates(self):
         uv = np.dstack(np.meshgrid(np.arange(self.w), np.arange(self.h)))
         return np.reshape(uv, (-1, 2))
@@ -69,8 +64,7 @@ def compute(cam: Camera, I0: np.ndarray, Z0: np.ndarray, motion: np.ndarray, I1:
     uv0 = cam.image_coordinates()[mask_selected][mask_visible].astype(int)
 
     i0x = I0[uv0[:, 1], uv0[:, 0]].reshape((-1,))
-
-    r = (i1x - i0x)
+    r = (i1x.astype(float) - i0x.astype(float))
 
     return r.mean()/255
 
