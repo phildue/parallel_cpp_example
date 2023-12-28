@@ -1,4 +1,7 @@
-#include <Eigen/Dense>
+#include <Eigen/Core>
+// sudo sed -i 's/#if EIGEN_COMP_CLANG || EIGEN_COMP_CASTXML/#if EIGEN_COMP_CLANG || EIGEN_COMP_CASTXML || __NVCOMPILER_LLVM__/'
+// /usr/local/include/eigen3/Eigen/src/Core/arch/NEON/Complex.h
+
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -126,7 +129,7 @@ double compute(const Camera& cam, const cv::Mat& I0, const cv::Mat& Z0, const Ma
   std::vector<Vec2d> uv0 = cam.imageCoordinates();
 
   std::vector<float> r(uv0.size());
-  std::transform(std::execution::par_unseq, uv0.begin(), uv0.end(), r.begin(), [Z0, I0, I1, &cam, t, R](auto uv0x) {
+  std::transform(std::execution::par_unseq, uv0.begin(), uv0.end(), r.begin(), [Z0, I0, I1, cam, t, R](auto uv0x) {
     const auto invalid = std::numeric_limits<float>::quiet_NaN();
     const float z = Z0.at<float>(uv0x(1), uv0x(0));
     if (!std::isfinite(z) || z <= 0) {
@@ -134,8 +137,8 @@ double compute(const Camera& cam, const cv::Mat& I0, const cv::Mat& Z0, const Ma
     }
 
     const Vec2i uv1x = Vec2d(cam.project(R * cam.reconstruct(uv0x, z) + t)).cast<int>();
-    const float i1x = I1.at<std::uint8_t>(uv1x(1), uv1x(0));
-    const float i0x = I0.at<std::uint8_t>(uv0x(1), uv0x(0));
+    const float i1x = I1.at<uint8_t>(uv1x(1), uv1x(0));
+    const float i0x = I0.at<uint8_t>(uv0x(1), uv0x(0));
     const float r = (i1x - i0x);
     return uv1x.allFinite() ? r : invalid;
   });
