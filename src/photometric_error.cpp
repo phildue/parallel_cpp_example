@@ -125,14 +125,13 @@ cv::Mat convertDepthMat(const cv::Mat& depth_, float factor) {
 double compute(const Camera& cam, const cv::Mat& I0, const cv::Mat& Z0, const Mat4d& pose, const cv::Mat& I1) {
 
   std::vector<Vec2d> uv0 = cam.imageCoordinates();
-  // std::vector<unsigned char> rgb0v(rgb0.begin<unsigned char>(), rgb0.end<unsigned char>());
   std::vector<float> r(uv0.size());
   std::transform(
     std::execution::par_unseq,
     uv0.begin(),
     uv0.end(),
     r.begin(),
-    [Z0 = (float*)Z0.data, I0 = (uint8_t*)I0.data, I1 = (uint8_t*)I1.data, w = cam.width(), cam, pose](auto uv0x) {
+    [I0 = I0.data, I1 = I1.data, Z0 = (float*)Z0.data, cam, pose, w = cam.width()](auto uv0x) {
       const auto invalid = std::numeric_limits<float>::quiet_NaN();
       const int u0 = uv0x(0);
       const int v0 = uv0x(1);
@@ -162,16 +161,23 @@ double compute(const Camera& cam, const cv::Mat& I0, const cv::Mat& Z0, const Ma
 
 using timer = std::chrono::high_resolution_clock;
 int main(int argc, char* argv[]) {
+
   const cv::Mat I0 = cv::imread(RESOURCE_DIR "/rgb0.png", cv::IMREAD_GRAYSCALE);
   const cv::Mat Z0 = convertDepthMat(cv::imread(RESOURCE_DIR "/depth0.png", cv::IMREAD_ANYDEPTH), 1.0 / 5000.0);
   const cv::Mat I1 = cv::imread(RESOURCE_DIR "/rgb1.png", cv::IMREAD_GRAYSCALE);
   Camera cam{525.0, 525.0, 319.5, 239.5, 640, 480};
+  std::vector<uint8_t> I0d(I0.begin<uint8_t>(), I0.end<uint8_t>());
+  std::vector<uint8_t> I1d(I1.begin<uint8_t>(), I1.end<uint8_t>());
+  std::vector<float> Z0d(Z0.begin<float>(), Z0.end<float>());
+  cv::Mat I0_{I0.rows, I0.cols, CV_8U, I0d.data()};
+  cv::Mat Z0_{I0.rows, I0.cols, CV_32F, Z0d.data()};
+  cv::Mat I1_{I0.rows, I0.cols, CV_8U, I1d.data()};
   Mat4d motion = Mat4d::Identity();
   int N = 100;
   VecXd dt = VecXd::Zero(N);
   for (int i = 0; i < N; i++) {
     auto t0 = timer::now();
-    auto error = compute(cam, I0, Z0, motion, I1);
+    auto error = compute(cam, I0_, Z0_, motion, I1_);
     auto t1 = timer::now();
     dt(i) = (t1 - t0).count() / 1e9;
     std::cout << "Execution on took " << dt(i) << "s error: [" << error << "]" << std::endl;
