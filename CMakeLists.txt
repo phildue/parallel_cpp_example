@@ -30,7 +30,7 @@ endif()
 find_package(NVHPC QUIET)
 if(NVHPC_FOUND)
     message(STATUS "Found NVHPC")
-    target_compile_options(photometric_error PRIVATE -stdpar=multicore)#gpu or multicore
+    target_compile_options(photometric_error PRIVATE -stdpar=multicore)
     target_link_options(photometric_error PRIVATE -stdpar=multicore)
     add_executable(photometric_error_gpu src/photometric_error.cpp)
     target_include_directories(photometric_error_gpu PUBLIC ${OpenCV_INCLUDE_DIRS})
@@ -40,6 +40,7 @@ if(NVHPC_FOUND)
     target_compile_definitions(photometric_error_gpu PRIVATE RESOURCE_DIR="${CMAKE_CURRENT_LIST_DIR}/resource")
     target_compile_features(photometric_error_gpu PUBLIC cxx_std_17)
 
-    target_compile_options(photometric_error_gpu PRIVATE -stdpar=gpu)#gpu or multicore
+    target_compile_options(photometric_error_gpu PRIVATE -Minfo)
+    target_compile_options(photometric_error_gpu PRIVATE -stdpar=gpu)
     target_link_options(photometric_error_gpu PRIVATE -stdpar=gpu)
 endif()

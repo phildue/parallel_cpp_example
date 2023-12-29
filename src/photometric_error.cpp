@@ -122,26 +122,40 @@ cv::Mat convertDepthMat(const cv::Mat& depth_, float factor) {
   return depth;
 }
 
-double compute(const Camera& cam, const cv::Mat& I0, const cv::Mat& Z0, const Mat4d& motion, const cv::Mat& I1) {
+double compute(const Camera& cam, const cv::Mat& I0, const cv::Mat& Z0, const Mat4d& pose, const cv::Mat& I1) {
 
-  const Mat3d R = motion.block<3, 3>(0, 0);
-  const Vec3d t = motion.block<3, 1>(0, 3);
   std::vector<Vec2d> uv0 = cam.imageCoordinates();
-
+  // std::vector<unsigned char> rgb0v(rgb0.begin<unsigned char>(), rgb0.end<unsigned char>());
   std::vector<float> r(uv0.size());
-  std::transform(std::execution::par_unseq, uv0.begin(), uv0.end(), r.begin(), [Z0, I0, I1, cam, t, R](auto uv0x) {
-    const auto invalid = std::numeric_limits<float>::quiet_NaN();
-    const float z = Z0.at<float>(uv0x(1), uv0x(0));
-    if (!std::isfinite(z) || z <= 0) {
-      return invalid;
-    }
+  std::transform(
+    std::execution::par_unseq,
+    uv0.begin(),
+    uv0.end(),
+    r.begin(),
+    [Z0 = (float*)Z0.data, I0 = (uint8_t*)I0.data, I1 = (uint8_t*)I1.data, w = cam.width(), cam, pose](auto uv0x) {
+      const auto invalid = std::numeric_limits<float>::quiet_NaN();
+      const int u0 = uv0x(0);
+      const int v0 = uv0x(1);
 
-    const Vec2i uv1x = Vec2d(cam.project(R * cam.reconstruct(uv0x, z) + t)).cast<int>();
-    const float i1x = I1.at<uint8_t>(uv1x(1), uv1x(0));
-    const float i0x = I0.at<uint8_t>(uv0x(1), uv0x(0));
-    const float r = (i1x - i0x);
-    return uv1x.allFinite() ? r : invalid;
-  });
+      const float z = Z0[v0 * w + u0];
+      if (!std::isfinite(z) || z <= 0) {
+        return invalid;
+      }
+      const Vec3d p0 = cam.reconstruct(uv0x, z);
+      /*Need to apply the transformation "manually" as otherwise cuda version does not compile due to "unsupported operation"*/
+      const Vec3d p0t = {
+        pose(0, 0) * p0(0) + pose(0, 1) * p0(1) + pose(0, 2) * p0(2) + pose(0, 3),
+        pose(1, 0) * p0(0) + pose(1, 1) * p0(1) + pose(1, 2) * p0(2) + pose(1, 3),
+        pose(2, 0) * p0(0) + pose(2, 1) * p0(1) + pose(2, 2) * p0(2) + pose(2, 3)};
+      const Vec2i uv1x = Vec2d(cam.project(p0t)).cast<int>();
+      if (!uv1x.allFinite()) {
+        return invalid;
+      }
+      const float i1x = I1[uv1x(1) * w + uv1x(0)];
+      const float i0x = I0[v0 * w + u0];
+      const float r = (i1x - i0x);
+      return r;
+    });
   r.erase(std::remove_if(r.begin(), r.end(), [](auto rx) { return !std::isfinite(rx); }), r.end());
   return std::accumulate(r.begin(), r.end(), 0.) / (r.size() * 255);
 }
