@@ -73,10 +73,16 @@ def main():
     import cv2 as cv
     import os
     from datetime import datetime
+    sx = 5.0
+    sy = 5.0
     I0 = cv.imread(f'{os.path.dirname(os.path.abspath(__file__))}/../resource/rgb0.png', cv.IMREAD_GRAYSCALE)
     Z0 = cv.imread(f'{os.path.dirname(os.path.abspath(__file__))}/../resource/depth0.png', cv.IMREAD_ANYDEPTH).astype(float)/5000.0
     I1 = cv.imread(f'{os.path.dirname(os.path.abspath(__file__))}/../resource/rgb1.png', cv.IMREAD_GRAYSCALE)
-    cam = Camera(fx=525.0, fy=525.0, cx=319.5, cy=239.5, h=480, w=640)
+    I0 = cv.resize(I0,(0,0),fx=sx,fy=sy)
+    I1 = cv.resize(I1,(0,0),fx=sx,fy=sy)
+    Z0 = cv.resize(Z0,(0,0),fx=sx,fy=sy)
+
+    cam = Camera(fx=525.0*sx, fy=525.0*sy, cx=319.5*sx, cy=239.5*sy, h=480*sy, w=640*sx)
     motion = np.identity(4)
     N = 100
     dt = np.zeros((N,))

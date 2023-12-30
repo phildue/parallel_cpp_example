@@ -74,13 +74,21 @@ def main():
     import os
     from datetime import datetime
     import numpy as np
+    sx = 1.0
+    sy = 1.0
+    device = 'cpu'#torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
     I0 = cv.imread(f'{os.path.dirname(os.path.abspath(__file__))}/../resource/rgb0.png', cv.IMREAD_GRAYSCALE)
     Z0 = cv.imread(f'{os.path.dirname(os.path.abspath(__file__))}/../resource/depth0.png', cv.IMREAD_ANYDEPTH).astype(float)/5000.0
     I1 = cv.imread(f'{os.path.dirname(os.path.abspath(__file__))}/../resource/rgb1.png', cv.IMREAD_GRAYSCALE)
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    cam = Camera(fx=525.0, fy=525.0, cx=319.5, cy=239.5, h=480, w=640, device=device)
+
+    I0 = cv.resize(I0,(0,0),fx=sx,fy=sy)
+    I1 = cv.resize(I1,(0,0),fx=sx,fy=sy)
+    Z0 = cv.resize(Z0,(0,0),fx=sx,fy=sy)
+
+    cam = Camera(fx=525.0*sx, fy=525.0*sy, cx=319.5*sx, cy=239.5*sy, h=480*sy, w=640*sx, device=device)
     motion = np.identity(4)
-    N = 100
+    N = 1000
     dt = np.zeros((N,))
     for i in range(N):
         t0 = datetime.now()

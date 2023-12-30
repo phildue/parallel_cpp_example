@@ -12,7 +12,6 @@
 #include <opencv2/imgproc.hpp>
 #include <stdexcept>
 #include <vector>
-
 typedef Eigen::Matrix<std::uint8_t, Eigen::Dynamic, Eigen::Dynamic> MatXui8;
 typedef Eigen::Matrix<int, Eigen::Dynamic, Eigen::Dynamic> MatXi;
 typedef std::vector<MatXi> MatXiVec;
@@ -125,20 +124,25 @@ cv::Mat convertDepthMat(const cv::Mat& depth_, float factor) {
 double compute(const Camera& cam, const cv::Mat& I0, const cv::Mat& Z0, const Mat4d& pose, const cv::Mat& I1) {
 
   std::vector<Vec2d> uv0 = cam.imageCoordinates();
-  std::vector<float> r(uv0.size());
-  std::transform(
+  struct Residual {
+    double r;
+    int n;
+  };
+  const Residual r = std::transform_reduce(
     std::execution::par_unseq,
     uv0.begin(),
     uv0.end(),
-    r.begin(),
-    [I0 = I0.data, I1 = I1.data, Z0 = (float*)Z0.data, cam, pose, w = cam.width()](auto uv0x) {
-      const auto invalid = std::numeric_limits<float>::quiet_NaN();
+    Residual{0., 0},
+    [](auto a, auto b) {
+      return Residual{a.r + b.r, a.n + b.n};
+    },
+    [I0 = I0.data, I1 = I1.data, Z0 = (float*)Z0.data, cam = cam, pose, w = cam.width(), uv0 = uv0.data()](auto uv0x) {
       const int u0 = uv0x(0);
       const int v0 = uv0x(1);
 
       const float z = Z0[v0 * w + u0];
       if (!std::isfinite(z) || z <= 0) {
-        return invalid;
+        return Residual{0, 0};
       }
       const Vec3d p0 = cam.reconstruct(uv0x, z);
       /*Need to apply the transformation "manually" as otherwise cuda version does not compile due to "unsupported operation"*/
@@ -148,24 +152,30 @@ double compute(const Camera& cam, const cv::Mat& I0, const cv::Mat& Z0, const Ma
         pose(2, 0) * p0(0) + pose(2, 1) * p0(1) + pose(2, 2) * p0(2) + pose(2, 3)};
       const Vec2i uv1x = Vec2d(cam.project(p0t)).cast<int>();
       if (!uv1x.allFinite()) {
-        return invalid;
+        return Residual{0, 0};
       }
       const float i1x = I1[uv1x(1) * w + uv1x(0)];
       const float i0x = I0[v0 * w + u0];
       const float r = (i1x - i0x);
-      return r;
+      return Residual{r, 1};
     });
-  r.erase(std::remove_if(r.begin(), r.end(), [](auto rx) { return !std::isfinite(rx); }), r.end());
-  return std::accumulate(r.begin(), r.end(), 0.) / (r.size() * 255);
+  return r.r / (255 * r.n);
 }
 
 using timer = std::chrono::high_resolution_clock;
 int main(int argc, char* argv[]) {
+  float sx = 5.0;
+  float sy = 5.0;
 
-  const cv::Mat I0 = cv::imread(RESOURCE_DIR "/rgb0.png", cv::IMREAD_GRAYSCALE);
-  const cv::Mat Z0 = convertDepthMat(cv::imread(RESOURCE_DIR "/depth0.png", cv::IMREAD_ANYDEPTH), 1.0 / 5000.0);
-  const cv::Mat I1 = cv::imread(RESOURCE_DIR "/rgb1.png", cv::IMREAD_GRAYSCALE);
-  Camera cam{525.0, 525.0, 319.5, 239.5, 640, 480};
+  cv::Mat I0 = cv::imread(RESOURCE_DIR "/rgb0.png", cv::IMREAD_GRAYSCALE);
+  cv::Mat Z0 = convertDepthMat(cv::imread(RESOURCE_DIR "/depth0.png", cv::IMREAD_ANYDEPTH), 1.0 / 5000.0);
+  cv::Mat I1 = cv::imread(RESOURCE_DIR "/rgb1.png", cv::IMREAD_GRAYSCALE);
+
+  cv::resize(I0, I0, cv::Size{0, 0}, sx, sy);
+  cv::resize(Z0, Z0, cv::Size{0, 0}, sx, sy);
+  cv::resize(I1, I1, cv::Size{0, 0}, sx, sy);
+
+  Camera cam{525.0 * sx, 525.0 * sy, 319.5 * sx, 239.5 * sy, 640 * sx, 480 * sy};
   std::vector<uint8_t> I0d(I0.begin<uint8_t>(), I0.end<uint8_t>());
   std::vector<uint8_t> I1d(I1.begin<uint8_t>(), I1.end<uint8_t>());
   std::vector<float> Z0d(Z0.begin<float>(), Z0.end<float>());
@@ -173,7 +183,7 @@ int main(int argc, char* argv[]) {
   cv::Mat Z0_{I0.rows, I0.cols, CV_32F, Z0d.data()};
   cv::Mat I1_{I0.rows, I0.cols, CV_8U, I1d.data()};
   Mat4d motion = Mat4d::Identity();
-  int N = 100;
+  int N = 1000;
   VecXd dt = VecXd::Zero(N);
   for (int i = 0; i < N; i++) {
     auto t0 = timer::now();
