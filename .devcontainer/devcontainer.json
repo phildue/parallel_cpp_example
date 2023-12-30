@@ -1,6 +1,7 @@
 // See https://aka.ms/vscode-remote/devcontainer.json for format details.
 {
-    "dockerFile": "../Dockerfile",
+    "name": "parallel_cpp_example",
+    "image": "parallel_cpp_example:dev",
     "workspaceMount": "source=${localWorkspaceFolder}/,target=/workspace,type=bind",
     "workspaceFolder": "/workspace",
     "runArgs": [

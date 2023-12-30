@@ -1,7 +1,4 @@
 #include <Eigen/Core>
-// sudo sed -i 's/#if EIGEN_COMP_CLANG || EIGEN_COMP_CASTXML/#if EIGEN_COMP_CLANG || EIGEN_COMP_CASTXML || __NVCOMPILER_LLVM__/'
-// /usr/local/include/eigen3/Eigen/src/Core/arch/NEON/Complex.h
-
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -10,29 +7,9 @@
 #include <numeric>
 #include <opencv2/highgui.hpp>
 #include <opencv2/imgproc.hpp>
+#include <ranges>
 #include <stdexcept>
 #include <vector>
-typedef Eigen::Matrix<std::uint8_t, Eigen::Dynamic, Eigen::Dynamic> MatXui8;
-typedef Eigen::Matrix<int, Eigen::Dynamic, Eigen::Dynamic> MatXi;
-typedef std::vector<MatXi> MatXiVec;
-
-typedef Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic> MatXd;
-typedef std::vector<MatXd> MatXdVec;
-
-typedef Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic> MatXf;
-
-template <typename Derived, int nRows, int nCols>
-using Mat = Eigen::Matrix<Derived, nRows, nCols>;
-
-template <typename Derived, int nRows>
-using Vec = Eigen::Matrix<Derived, nRows, 1>;
-
-template <int nRows, int nCols>
-using Matd = Eigen::Matrix<double, nRows, nCols>;
-
-template <int nRows, int nCols>
-using Matf = Eigen::Matrix<float, nRows, nCols>;
-
 typedef Eigen::VectorXd VecXd;
 typedef Eigen::Vector2d Vec2d;
 typedef Eigen::Vector2i Vec2i;
@@ -41,11 +18,6 @@ typedef Eigen::Vector4d Vec4d;
 typedef Eigen::Matrix<double, 2, 2> Mat2d;
 typedef Eigen::Matrix<double, 3, 3> Mat3d;
 typedef Eigen::Matrix<double, 4, 4> Mat4d;
-typedef Eigen::Matrix<double, 6, 1> Vec6d;
-typedef Eigen::Matrix<double, 7, 1> Vec7d;
-typedef Eigen::Matrix<double, 6, 6> Mat6d;
-typedef Eigen::Matrix<double, 12, 1> Vec12d;
-typedef Eigen::Matrix<double, 12, 12> Mat12d;
 
 class Camera {
 public:
@@ -120,52 +92,60 @@ cv::Mat convertDepthMat(const cv::Mat& depth_, float factor) {
   }
   return depth;
 }
+using timer = std::chrono::high_resolution_clock;
 
-double compute(const Camera& cam, const cv::Mat& I0, const cv::Mat& Z0, const Mat4d& pose, const cv::Mat& I1) {
-
-  std::vector<Vec2d> uv0 = cam.imageCoordinates();
+double compute(const Camera& cam, const cv::Mat& I0, const cv::Mat& Z0, const cv::Mat& I1, const Mat4d& pose) {
   struct Residual {
     double r;
     int n;
   };
+
+  namespace stdv = std::views;
+  auto idxx = stdv::iota(0, I0.cols * I0.rows);
   const Residual r = std::transform_reduce(
     std::execution::par_unseq,
-    uv0.begin(),
-    uv0.end(),
+    idxx.begin(),
+    idxx.end(),
     Residual{0., 0},
     [](auto a, auto b) {
       return Residual{a.r + b.r, a.n + b.n};
     },
-    [I0 = I0.data, I1 = I1.data, Z0 = (float*)Z0.data, cam = cam, pose, w = cam.width(), uv0 = uv0.data()](auto uv0x) {
-      const int u0 = uv0x(0);
-      const int v0 = uv0x(1);
-
-      const float z = Z0[v0 * w + u0];
+    [I0 = I0.data, I1 = I1.data, Z0 = (float*)Z0.data, cam = cam, pose, w = cam.width()](int idx) {
+      int u = idx % w;
+      int v = (idx - u) / w;
+      const float z = Z0[idx];
       if (!std::isfinite(z) || z <= 0) {
         return Residual{0, 0};
       }
-      const Vec3d p0 = cam.reconstruct(uv0x, z);
+      const Vec3d p0 = cam.reconstruct({u, v}, z);
       /*Need to apply the transformation "manually" as otherwise cuda version does not compile due to "unsupported operation"*/
       const Vec3d p0t = {
         pose(0, 0) * p0(0) + pose(0, 1) * p0(1) + pose(0, 2) * p0(2) + pose(0, 3),
         pose(1, 0) * p0(0) + pose(1, 1) * p0(1) + pose(1, 2) * p0(2) + pose(1, 3),
         pose(2, 0) * p0(0) + pose(2, 1) * p0(1) + pose(2, 2) * p0(2) + pose(2, 3)};
-      const Vec2i uv1x = Vec2d(cam.project(p0t)).cast<int>();
-      if (!uv1x.allFinite()) {
+      const Vec2i uv1 = Vec2d(cam.project(p0t)).cast<int>();
+      if (!uv1.allFinite()) {
         return Residual{0, 0};
       }
-      const float i1x = I1[uv1x(1) * w + uv1x(0)];
-      const float i0x = I0[v0 * w + u0];
+      const float i1x = I1[uv1(1) * cam.width() + uv1(0)];
+      const float i0x = I0[idx];
       const float r = (i1x - i0x);
       return Residual{r, 1};
     });
   return r.r / (255 * r.n);
 }
-
-using timer = std::chrono::high_resolution_clock;
 int main(int argc, char* argv[]) {
-  float sx = 5.0;
-  float sy = 5.0;
+  float sx = 1.0;
+  float sy = 1.0;
+  int N = 100;
+
+  if (argc > 1) {
+    N = std::stoi(argv[1]);
+  }
+  if (argc > 2) {
+    sx = std::stof(argv[2]);
+    sy = std::stof(argv[2]);
+  }
 
   cv::Mat I0 = cv::imread(RESOURCE_DIR "/rgb0.png", cv::IMREAD_GRAYSCALE);
   cv::Mat Z0 = convertDepthMat(cv::imread(RESOURCE_DIR "/depth0.png", cv::IMREAD_ANYDEPTH), 1.0 / 5000.0);
@@ -182,16 +162,18 @@ int main(int argc, char* argv[]) {
   cv::Mat I0_{I0.rows, I0.cols, CV_8U, I0d.data()};
   cv::Mat Z0_{I0.rows, I0.cols, CV_32F, Z0d.data()};
   cv::Mat I1_{I0.rows, I0.cols, CV_8U, I1d.data()};
-  Mat4d motion = Mat4d::Identity();
-  int N = 1000;
+  Mat4d pose = Mat4d::Identity();
   VecXd dt = VecXd::Zero(N);
+  std::cout << "Running for [" << N << "] iterations on scale: [" << I0.cols << "," << I0.rows << "]" << std::endl;
+  double err = 0.;
   for (int i = 0; i < N; i++) {
     auto t0 = timer::now();
-    auto error = compute(cam, I0_, Z0_, motion, I1_);
+
+    err = compute(cam, I0_, Z0_, I1_, pose);
+
     auto t1 = timer::now();
     dt(i) = (t1 - t0).count() / 1e9;
-    std::cout << "Execution on took " << dt(i) << "s error: [" << error << "]" << std::endl;
   }
-  std::cout << "Mean = " << dt.mean() << std::endl;
+  std::cout << "Mean = " << dt.mean() << " Error: " << err << std::endl;
   return 0;
 }

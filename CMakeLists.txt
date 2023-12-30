@@ -4,10 +4,10 @@ project(parallel_cpp_example LANGUAGES CXX)
 # Compile for GPU
 ############################
 # make sure to select nvcc as compiler with 
-# source /etc/profiles.d/module.profile
+# source /etc/profiles.d/module.sh
 # module load ..
 
-find_package(OpenCV)
+find_package(OpenCV REQUIRED)
 # Linking only against the required subset to avoid linking issues
 message(STATUS "Found OpenCV Libs: ${OpenCV_LIBRARIES}")
 set(OpenCV_LIBRARIES opencv_core opencv_imgproc opencv_imgcodecs)
@@ -27,13 +27,9 @@ target_compile_features(photometric_error PUBLIC cxx_std_20)
 #######################################################
 #   Link various parallelization backends if available
 #######################################################
-find_package(TBB QUIET)
-if(TBB_FOUND)
-    target_link_libraries(photometric_error TBB::tbb)
-endif()
-find_package(NVHPC QUIET)
+
+find_package(NVHPC)
 if(NVHPC_FOUND)
-    message(STATUS "Found NVHPC")
     target_compile_options(photometric_error PRIVATE -stdpar=multicore)
     target_link_options(photometric_error PRIVATE -stdpar=multicore)
 
@@ -53,4 +49,10 @@ if(NVHPC_FOUND)
     target_link_options(photometric_error_gpu PRIVATE -Minfo -fast -march=native -Mllvm-fast)
     target_link_options(photometric_error_gpu PRIVATE -stdpar=gpu)
 
+else()
+    message(WARNING "NVHPC SDK not found")
+    find_package(TBB)
+    if(TBB_FOUND)
+        target_link_libraries(photometric_error TBB::tbb)
+    endif()
 endif()
