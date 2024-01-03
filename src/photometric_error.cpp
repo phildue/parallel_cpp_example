@@ -23,6 +23,110 @@ typedef Eigen::Matrix<double, 2, 2> Mat2f;
 typedef Eigen::Matrix<double, 3, 3> Mat3f;
 typedef Eigen::Matrix<double, 4, 4> Mat4f;
 
+namespace classic {
+template <typename Reproject>
+double compute(Reproject reproject, const cv::Mat& I0, const cv::Mat& I1); 
+}
+
+namespace sequential {
+template <typename Reproject>
+double compute(Reproject reproject, const cv::Mat& I0, const cv::Mat& I1); 
+}
+
+namespace parallel {
+template <typename Reproject>
+double compute(Reproject reproject, const cv::Mat& I0, const cv::Mat& I1); 
+}
+namespace par_two_step{
+template <typename Reproject>
+double compute(Reproject reproject, const cv::Mat& I0, const cv::Mat& I1); 
+}
+cv::Mat convertDepthMat(const cv::Mat& depth_, float factor);
+
+int main(int argc, char* argv[]) {
+
+  float sx = 1.0;
+  float sy = 1.0;
+  int N = 100;
+  std::string method = "classic";
+  if (argc > 1) {
+    N = std::stoi(argv[1]);
+  }
+  if (argc > 2) {
+    sx = std::stof(argv[2]);
+    sy = std::stof(argv[2]);
+  }
+  if (argc > 3) {
+    method = std::string(argv[3]);
+  }
+
+  cv::Mat I0 = cv::imread(RESOURCE_DIR "/rgb0.png", cv::IMREAD_GRAYSCALE);
+  cv::Mat Z0 = convertDepthMat(cv::imread(RESOURCE_DIR "/depth0.png", cv::IMREAD_ANYDEPTH), 1.0 / 5000.0);
+  cv::Mat I1 = cv::imread(RESOURCE_DIR "/rgb1.png", cv::IMREAD_GRAYSCALE);
+
+  cv::resize(I0, I0, cv::Size{0, 0}, sx, sy);
+  cv::resize(Z0, Z0, cv::Size{0, 0}, sx, sy, cv::INTER_NEAREST);//No bilinear interpolation for depth
+  cv::resize(I1, I1, cv::Size{0, 0}, sx, sy);
+
+  /*FIXME: the memory allocated by opencv is not using unified memory*/
+  std::vector<uint8_t> I0d(I0.begin<uint8_t>(), I0.end<uint8_t>());
+  std::vector<uint8_t> I1d(I1.begin<uint8_t>(), I1.end<uint8_t>());
+  std::vector<float> Z0d(Z0.begin<float>(), Z0.end<float>());
+  cv::Mat I0_{I0.rows, I0.cols, CV_8U, I0d.data()};
+  cv::Mat Z0_{I0.rows, I0.cols, CV_32F, Z0d.data()};
+  cv::Mat I1_{I0.rows, I0.cols, CV_8U, I1d.data()};
+  Mat4f pose = Mat4f::Identity();
+
+  // TUM-RGBD Dataset
+  auto reproject =
+    [fx = 525.0f*sx, fy = 525.0f*sy, cx = 319.5f*sx, cy = 239.5f*sy, w = (int)(640*sx), h = (int)(480*sy), Z0 = Z0d.data(), pose](const Vec2f& uv0) -> Vec2f {
+    const float z = Z0[(int)uv0(1) * w + (int)uv0(0)];
+    if (!std::isfinite(z) || z <= 0) {
+      return {-1, -1};
+    }
+    const Vec3f p0{(uv0(0) - cx) / fx * z, (uv0(1) - cy) / fy * z, z};
+
+    /*Need to apply the transformation "manually" as otherwise cuda version does not compile due to "unsupported operation"*/
+    const Vec3f p0t = {
+      pose(0, 0) * p0(0) + pose(0, 1) * p0(1) + pose(0, 2) * p0(2) + pose(0, 3),
+      pose(1, 0) * p0(0) + pose(1, 1) * p0(1) + pose(1, 2) * p0(2) + pose(1, 3),
+      pose(2, 0) * p0(0) + pose(2, 1) * p0(1) + pose(2, 2) * p0(2) + pose(2, 3)};
+
+    if (p0t(2) <= 0) {
+      return {-1, -1};
+    }
+    const Vec2f uv1{(fx * p0t(0) / p0t(2)) + cx, (fy * p0t(1) / p0t(2)) + cy};
+    return uv1;
+  };
+  std::function<double(const cv::Mat&, const cv::Mat&)> compute;
+  if (method == "parallel") {
+    compute = [reproject](auto a, auto b) { return parallel::compute(reproject, a, b); };
+  } else if (method == "sequential") {
+    compute = [reproject](auto a, auto b) { return sequential::compute(reproject, a, b); };
+  } else if (method == "par_two_step") {
+    compute = [reproject](auto a, auto b) { return par_two_step::compute(reproject, a, b); };
+  } else {
+    method = "classic";
+    compute = [reproject](auto a, auto b) { return classic::compute(reproject, a, b); };
+  }
+  using timer = std::chrono::high_resolution_clock;
+
+  std::cout << "Running for [" << N << "] iterations on scale: [" << I0.cols << "," << I0.rows << "] with method: [" << method << "]"
+            << std::endl;
+  std::vector<double> dt(N);
+  double err = 0.;
+  for (int i = 0; i < N; i++) {
+    auto t0 = timer::now();
+
+    err = compute(I0_, I1_);
+
+    auto t1 = timer::now();
+    dt[i] = (t1 - t0).count() / 1e9;
+  }
+  std::cout << "Mean = " << std::reduce(dt.begin(), dt.end()) / N << " Error: " << err << std::endl;
+  return 0;
+}
+
 cv::Mat convertDepthMat(const cv::Mat& depth_, float factor) {
   cv::Mat depth(cv::Size(depth_.cols, depth_.rows), CV_32FC1);
   for (int u = 0; u < depth_.cols; u++) {
@@ -33,7 +137,6 @@ cv::Mat convertDepthMat(const cv::Mat& depth_, float factor) {
   }
   return depth;
 }
-using timer = std::chrono::high_resolution_clock;
 
 namespace parallel {
 template <typename Reproject>
@@ -118,83 +221,3 @@ double compute(Reproject reproject, const cv::Mat& I0, const cv::Mat& I1) {
   return r / 255.f;
 }
 }  // namespace classic
-int main(int argc, char* argv[]) {
-  float sx = 1.0;
-  float sy = 1.0;
-  int N = 100;
-  std::string method = "classic";
-  if (argc > 1) {
-    N = std::stoi(argv[1]);
-  }
-  if (argc > 2) {
-    sx = std::stof(argv[2]);
-    sy = std::stof(argv[2]);
-  }
-  if (argc > 3) {
-    method = std::string(argv[3]);
-  }
-
-  cv::Mat I0 = cv::imread(RESOURCE_DIR "/rgb0.png", cv::IMREAD_GRAYSCALE);
-  cv::Mat Z0 = convertDepthMat(cv::imread(RESOURCE_DIR "/depth0.png", cv::IMREAD_ANYDEPTH), 1.0 / 5000.0);
-  cv::Mat I1 = cv::imread(RESOURCE_DIR "/rgb1.png", cv::IMREAD_GRAYSCALE);
-
-  cv::resize(I0, I0, cv::Size{0, 0}, sx, sy);
-  cv::resize(Z0, Z0, cv::Size{0, 0}, sx, sy, cv::INTER_NEAREST);
-  cv::resize(I1, I1, cv::Size{0, 0}, sx, sy);
-
-  /*FIXME: the memory allocated by opencv is not using unified memory*/
-  std::vector<uint8_t> I0d(I0.begin<uint8_t>(), I0.end<uint8_t>());
-  std::vector<uint8_t> I1d(I1.begin<uint8_t>(), I1.end<uint8_t>());
-  std::vector<float> Z0d(Z0.begin<float>(), Z0.end<float>());
-  cv::Mat I0_{I0.rows, I0.cols, CV_8U, I0d.data()};
-  cv::Mat Z0_{I0.rows, I0.cols, CV_32F, Z0d.data()};
-  cv::Mat I1_{I0.rows, I0.cols, CV_8U, I1d.data()};
-  Mat4f pose = Mat4f::Identity();
-
-  // TUM-RGBD Dataset
-  auto reproject =
-    [fx = 525.0f*sx, fy = 525.0f*sy, cx = 319.5f*sx, cy = 239.5f*sy, w = (int)(640*sx), h = (int)(480*sy), Z0 = Z0d.data(), pose](const Vec2f& uv0) -> Vec2f {
-    const float z = Z0[(int)uv0(1) * w + (int)uv0(0)];
-    if (!std::isfinite(z) || z <= 0) {
-      return {-1, -1};
-    }
-    const Vec3f p0{(uv0(0) - cx) / fx * z, (uv0(1) - cy) / fy * z, z};
-
-    /*Need to apply the transformation "manually" as otherwise cuda version does not compile due to "unsupported operation"*/
-    const Vec3f p0t = {
-      pose(0, 0) * p0(0) + pose(0, 1) * p0(1) + pose(0, 2) * p0(2) + pose(0, 3),
-      pose(1, 0) * p0(0) + pose(1, 1) * p0(1) + pose(1, 2) * p0(2) + pose(1, 3),
-      pose(2, 0) * p0(0) + pose(2, 1) * p0(1) + pose(2, 2) * p0(2) + pose(2, 3)};
-
-    if (p0t(2) <= 0) {
-      return {-1, -1};
-    }
-    const Vec2f uv1{(fx * p0t(0) / p0t(2)) + cx, (fy * p0t(1) / p0t(2)) + cy};
-    return uv1;
-  };
-  std::function<double(const cv::Mat&, const cv::Mat&)> compute;
-  if (method == "parallel") {
-    compute = [reproject](auto a, auto b) { return parallel::compute(reproject, a, b); };
-  } else if (method == "sequential") {
-    compute = [reproject](auto a, auto b) { return sequential::compute(reproject, a, b); };
-  } else if (method == "par_two_step") {
-    compute = [reproject](auto a, auto b) { return par_two_step::compute(reproject, a, b); };
-  } else {
-    method = "classic";
-    compute = [reproject](auto a, auto b) { return classic::compute(reproject, a, b); };
-  }
-  std::cout << "Running for [" << N << "] iterations on scale: [" << I0.cols << "," << I0.rows << "] with method: [" << method << "]"
-            << std::endl;
-  std::vector<double> dt(N);
-  double err = 0.;
-  for (int i = 0; i < N; i++) {
-    auto t0 = timer::now();
-
-    err = compute(I0_, I1_);
-
-    auto t1 = timer::now();
-    dt[i] = (t1 - t0).count() / 1e9;
-  }
-  std::cout << "Mean = " << std::reduce(dt.begin(), dt.end()) / N << " Error: " << err << std::endl;
-  return 0;
-}

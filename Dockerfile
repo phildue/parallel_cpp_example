@@ -11,5 +11,6 @@ ADD CMakeLists.txt /workspace/
 
 WORKDIR /workspace
 RUN . /etc/profile.d/lmod.sh && module load nvhpc-hpcx/23.11 && mkdir -p /workspace/build && cd /workspace/build && cmake .. && make
+RUN mkdir -p /workspace/build-gcc && cd /workspace/build-gcc && cmake .. && make
 ADD resource /workspace/resource
 
