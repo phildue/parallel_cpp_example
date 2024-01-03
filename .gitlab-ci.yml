@@ -11,6 +11,6 @@ build-job: # This job runs in the build stage, which runs first.
 test-job: # This job runs in the test stage.
   stage: test # It only starts when the job in the build stage completes successfully.
   script:
-    - docker run -ti --gpus=all --rm parallel_cpp_example ./build/photometric_error_gpu 10 parallel
-    - docker run -ti --gpus=all --rm parallel_cpp_example ./build/photometric_error 10 1 parallel
+    - docker run --gpus=all --rm parallel_cpp_example ./build/photometric_error_gpu 10 parallel
+    - docker run --gpus=all --rm parallel_cpp_example ./build/photometric_error 10 1 parallel
   tags: [xavier]
