@@ -53,7 +53,7 @@ double compute(Reproject reproject, const cv::Mat& I0, const cv::Mat& I1) {
              const bool withinImage = 0 < uv1(0) && uv1(0) < w && 0 < uv1(1) && uv1(1) < h;
              return withinImage ? (float)(I1[(int)uv1(1) * w + (int)uv1(0)]) - (float)(I0[v0 * w + u0]) : 0.f;
            }) /
-         255.;
+         255.f;
 }
 }  // namespace parallel
 namespace par_two_step {
@@ -78,7 +78,7 @@ double compute(Reproject reproject, const cv::Mat& I0, const cv::Mat& I1) {
              const bool withinImage = 0 < uv1x(0) && uv1x(0) < w && 0 < uv1x(1) && uv1x(1) < h;
              return withinImage ? (float)(I1[uv1x(1) * w + uv1x(0)]) - (float)(I0[v0 * w + u0]) : 0.f;
            }) /
-         255.;
+         255.f;
 }
 }  // namespace par_two_step
 namespace sequential {
@@ -98,7 +98,7 @@ double compute(Reproject reproject, const cv::Mat& I0, const cv::Mat& I1) {
              const bool withinImage = 0 < uv1(0) && uv1(0) < w && 0 < uv1(1) && uv1(1) < h;
              return withinImage ? (float)(I1[(int)uv1(1) * w + (int)uv1(0)]) - (float)(I0[v0 * w + u0]) : 0.f;
            }) /
-         255.;
+         255.f;
 }
 }  // namespace sequential
 
@@ -106,16 +106,16 @@ namespace classic {
 template <typename Reproject>
 double compute(Reproject reproject, const cv::Mat& I0, const cv::Mat& I1) {
 
-  double r = 0.;
+  float r = 0.;
   for (int u0 = 0; u0 < I0.cols; u0++) {
     for (int v0 = 0; v0 < I0.rows; v0++) {
       const Vec2f uv1 = reproject({u0, v0});
       const bool withinImage = 0 < uv1(0) && uv1(0) < I0.cols && 0 < uv1(1) && uv1(1) < I0.rows;
 
-      r += withinImage ? (double)(I1.at<uint8_t>((int)uv1(1), (int)uv1(0))) - (double)(I0.at<uint8_t>(v0, u0)) : 0.;
+      r += withinImage ? (float)(I1.at<uint8_t>((int)uv1(1), (int)uv1(0))) - (float)(I0.at<uint8_t>(v0, u0)) : 0.;
     }
   }
-  return r / 255.;
+  return r / 255.f;
 }
 }  // namespace classic
 int main(int argc, char* argv[]) {
@@ -153,7 +153,7 @@ int main(int argc, char* argv[]) {
 
   // TUM-RGBD Dataset
   auto reproject =
-    [fx = 525.0f, fy = 525.0f, cx = 319.5f, cy = 239.5f, w = 640, h = 480, Z0 = Z0d.data(), pose](const Vec2f& uv0) -> Vec2f {
+    [fx = 525.0f*sx, fy = 525.0f*sy, cx = 319.5f*sx, cy = 239.5f*sy, w = (int)(640*sx), h = (int)(480*sy), Z0 = Z0d.data(), pose](const Vec2f& uv0) -> Vec2f {
     const float z = Z0[(int)uv0(1) * w + (int)uv0(0)];
     if (!std::isfinite(z) || z <= 0) {
       return {-1, -1};
