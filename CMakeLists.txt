@@ -10,7 +10,7 @@ project(parallel_cpp_example LANGUAGES CXX)
 find_package(OpenCV REQUIRED)
 # Linking only against the required subset to avoid linking issues
 message(STATUS "Found OpenCV Libs: ${OpenCV_LIBRARIES}")
-set(OpenCV_LIBRARIES opencv_core opencv_imgproc opencv_imgcodecs)
+#set(OpenCV_LIBRARIES opencv_core opencv_imgproc opencv_imgcodecs)
 message(STATUS "Linking: ${OpenCV_LIBRARIES}")
 find_package(Eigen3 3.4 REQUIRED)
 
