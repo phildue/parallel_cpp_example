@@ -34,9 +34,21 @@ struct Args {
   std::string method = "parallel";
   static Args parse(int argc, char* argv[]);
 };
+namespace photometric_error {
+std::function<double(const cv::Mat&, const cv::Mat&)> construct(const Args& args, const cv::Mat& Z0);
 
-std::function<double(const cv::Mat&, const cv::Mat&)> makeAlgorithm(const Args& args, const cv::Mat& Z0);
+}
 
+template <typename Iterable>
+double mean(const Iterable& iterable) {
+  return std::reduce(iterable.begin(), iterable.end()) / std::distance(iterable.begin(), iterable.end());
+}
+template <typename Iterable>
+double stddev(const Iterable& iterable) {
+  return std::sqrt(std::transform_reduce(
+           iterable.begin(), iterable.end(), 0., std::plus{}, [mean = mean(iterable)](auto x) { return std::pow(x - mean, 2); })) /
+         (std::distance(iterable.begin(), iterable.end()) - 1);
+}
 int main(int argc, char* argv[]) {
 
   const Args args = Args::parse(argc, argv);
@@ -57,7 +69,7 @@ int main(int argc, char* argv[]) {
   cv::resize(Z0_, Z0, cv::Size{0, 0}, args.sx, args.sy, cv::INTER_NEAREST);  // No bilinear interpolation for depth
   cv::resize(I1_, I1, cv::Size{0, 0}, args.sx, args.sy);
 
-  auto compute = makeAlgorithm(args, Z0);
+  auto computePhotometricError = photometric_error::construct(args, Z0);
 
   using timer = std::chrono::high_resolution_clock;
 
@@ -68,12 +80,12 @@ int main(int argc, char* argv[]) {
   for (int i = 0; i < args.N; i++) {
     auto t0 = timer::now();
 
-    err = compute(I0, I1);
+    err = computePhotometricError(I0, I1);
 
     auto t1 = timer::now();
     dt[i] = (t1 - t0).count() / 1e9;
   }
-  std::cout << "Mean = " << std::reduce(dt.begin(), dt.end()) / args.N << " Error: " << err << std::endl;
+  std::cout << "Runtime = " << mean(dt) << " +- " << stddev(dt) << " Error: " << err << std::endl;
   return 0;
 }
 
@@ -105,7 +117,7 @@ cv::Mat convertDepthMat(const cv::Mat& depth_, float factor) {
   }
   return depth;
 }
-
+namespace photometric_error {
 namespace parallel {
 template <typename Reproject>
 double compute(Reproject reproject, const cv::Mat& I0, const cv::Mat& I1) {
@@ -156,15 +168,15 @@ namespace sequential {
 template <typename Reproject>
 double compute(Reproject reproject, const cv::Mat& I0, const cv::Mat& I1) {
 
-  auto idxx = stdv::iota(0, I0.cols * I0.rows);
+  auto X = stdv::iota(0, I0.cols * I0.rows);
   return std::transform_reduce(
-           idxx.begin(),
-           idxx.end(),
+           X.begin(),
+           X.end(),
            0.,
            std::plus<float>{},
-           [I0 = I0.data, I1 = I1.data, w = I0.cols, h = I0.rows, reproject](int idx) {
-             const int u0 = idx % w;
-             const int v0 = (idx - u0) / w;
+           [I0 = I0.data, I1 = I1.data, w = I0.cols, h = I0.rows, reproject](int x) {
+             const int u0 = x % w;
+             const int v0 = (x - u0) / w;
              const Vec2f uv1 = reproject({u0, v0});
              const bool withinImage = 0 < uv1(0) && uv1(0) < w && 0 < uv1(1) && uv1(1) < h;
              return withinImage ? (float)(I1[(int)uv1(1) * w + (int)uv1(0)]) - (float)(I0[v0 * w + u0]) : 0.f;
@@ -178,8 +190,8 @@ template <typename Reproject>
 double compute(Reproject reproject, const cv::Mat& I0, const cv::Mat& I1) {
 
   float r = 0.;
-  for (int u0 = 0; u0 < I0.cols; u0++) {
-    for (int v0 = 0; v0 < I0.rows; v0++) {
+  for (int v0 = 0; v0 < I0.rows; v0++) {
+    for (int u0 = 0; u0 < I0.cols; u0++) {
       const Vec2f uv1 = reproject({u0, v0});
       const bool withinImage = 0 < uv1(0) && uv1(0) < I0.cols && 0 < uv1(1) && uv1(1) < I0.rows;
 
@@ -190,7 +202,7 @@ double compute(Reproject reproject, const cv::Mat& I0, const cv::Mat& I1) {
 }
 }  // namespace classic
 
-std::function<double(const cv::Mat&, const cv::Mat&)> makeAlgorithm(const Args& args, const cv::Mat& Z0) {
+std::function<double(const cv::Mat&, const cv::Mat&)> construct(const Args& args, const cv::Mat& Z0) {
   // TUM-RGBD Camera
   auto reproject = [fx = 525.0f * args.sx,
                     fy = 525.0f * args.sy,
@@ -225,3 +237,4 @@ std::function<double(const cv::Mat&, const cv::Mat&)> makeAlgorithm(const Args& 
   };
   return compute.at(args.method);
 }
+}  // namespace photometric_error
