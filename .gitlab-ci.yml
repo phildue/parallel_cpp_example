@@ -1,16 +1,16 @@
-stages:          # List of stages for jobs, and their order of execution
+stages: # List of stages for jobs, and their order of execution
   - build
   - test
 
-build-job:       # This job runs in the build stage, which runs first.
+build-job: # This job runs in the build stage, which runs first.
   stage: build
   script:
-    - build.sh
+    - docker build . -t parallel_cpp_example
   tags: [xavier]
 
-unit-test-job:   # This job runs in the test stage.
-  stage: test    # It only starts when the job in the build stage completes successfully.
+test-job: # This job runs in the test stage.
+  stage: test # It only starts when the job in the build stage completes successfully.
   script:
-      - run_gpu.sh
-      - run_cpu.sh
+    - docker run --gpus=all --rm parallel_cpp_example ./build/photometric_error_gpu 10 1 parallel
+    - docker run --gpus=all --rm parallel_cpp_example ./build/photometric_error 10 1 parallel
   tags: [xavier]

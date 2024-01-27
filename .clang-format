@@ -1,0 +1,18 @@
+BasedOnStyle: LLVM
+IndentWidth: 2
+ColumnLimit: 140
+AlignAfterOpenBracket: AlwaysBreak
+BreakConstructorInitializers: AfterColon
+BinPackArguments: false  
+BinPackParameters: false 
+AlignEscapedNewlines: DontAlign
+SpacesBeforeTrailingComments: 2
+AllowShortBlocksOnASingleLine: Never
+ContinuationIndentWidth: 2
+Standard: c++20
+UseTab: Never
+#PackConstructorInitializers: Never
+#ReferenceAlignment: Left
+PointerAlignment: Left
+AlwaysBreakTemplateDeclarations: Yes
+
